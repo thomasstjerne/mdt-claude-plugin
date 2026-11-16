@@ -1,0 +1,14 @@
+{
+  "name": "mdt-claude-plugin",
+  "description": "Claude Code plugin for the GBIF Metabarcoding Data Toolkit (MDT).",
+  "owner": {
+    "name": "Thomas Stjernegaard Jeppesen"
+  },
+  "plugins": [
+    {
+      "name": "mdt",
+      "source": "./",
+      "description": "Prepare metabarcoding/eDNA data for the GBIF Metabarcoding Data Toolkit (MDT) and take it through the MDT to a Darwin Core Archive on GBIF."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "mdt",
+  "version": "0.1.0",
+  "description": "Prepare metabarcoding/eDNA data for the GBIF Metabarcoding Data Toolkit (MDT) and take it through the MDT to a Darwin Core Archive on GBIF.",
+  "author": {
+    "name": "Thomas Stjernegaard Jeppesen"
+  },
+  "homepage": "https://github.com/thomasstjerne/mdt-claude-plugin",
+  "repository": "https://github.com/thomasstjerne/mdt-claude-plugin",
+  "license": "Apache-2.0",
+  "keywords": ["gbif", "metabarcoding", "edna", "darwin-core", "biodiversity"]
+}
