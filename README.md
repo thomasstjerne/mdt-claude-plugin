@@ -25,12 +25,12 @@ You need Python 3.8 or later, and a [GBIF account](https://www.gbif.org/user/pro
 
 ## Logging in
 
-`mdt.py login` asks for your GBIF username and password and stores the MDT's login token in `~/.config/mdt/`. Run it in a terminal window of your own, not through Claude, so the password never enters the conversation. The token is renewed with every request; log in again when it expires.
+`mdt.py login` asks for your GBIF username and password and stores the MDT's login token in `~/.config/mdt/`, one per installation. Run it in a terminal window of your own, not through Claude, so the password never enters the conversation. The token is renewed with every request; log in again when it expires.
 
 ## What leaves your machine
 
 - Claude reads your files to reshape them. Unless you run a local model, what it reads goes to the model provider.
-- `mdt.py upload` and `add` send the files you name to the MDT installation, by default `https://mdt.gbif.org`. Use `mdt.py config --base-url` for another installation.
+- `mdt.py upload` and `add` send the files you name to the MDT installation you chose: `https://mdt.gbif.org` by default, another installation, or a local MDT at `http://localhost:9000` when testing. The choice is kept per folder, in `mdt-dataset.json`.
 - `uat`, `validator` and `publish` ask the MDT to send the archive to GBIF.
 
 ## Feedback

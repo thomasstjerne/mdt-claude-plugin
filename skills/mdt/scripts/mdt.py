@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Drive the GBIF Metabarcoding Data Toolkit (MDT) API from the command line.
 
-Standard library only. The login token is kept in ~/.config/mdt/, never printed, and renewed
-from the `token` header every authenticated response carries. The dataset being worked on is
-remembered in ./mdt-dataset.json, so commands run in the same directory need no key.
+Standard library only. Login tokens are kept per installation in ~/.config/mdt/, never printed,
+and renewed from the `token` header every authenticated response carries. The installation and
+the dataset being worked on are remembered in ./mdt-dataset.json, so commands run in the same
+directory always go back to the MDT the dataset is on.
+
+The installation is, in order: --base-url, MDT_BASE_URL, ./mdt-dataset.json, the default set
+with `config --set-default`, and https://mdt.gbif.org/service.
 """
 import argparse
 import base64
@@ -20,11 +24,14 @@ import uuid
 
 DEFAULT_BASE_URL = "https://mdt.gbif.org/service"
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "mdt")
-TOKEN_FILE = os.path.join(CONFIG_DIR, "token")
+TOKENS_FILE = os.path.join(CONFIG_DIR, "tokens.json")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 DATASET_FILE = "mdt-dataset.json"
 POLL_SECONDS = 5
 SCRIPT = os.path.abspath(__file__)
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+LOCAL_API_PORT, LOCAL_WEB_PORT = 9000, 3000
+base_url_option = None
 
 
 class MdtError(Exception):
@@ -46,39 +53,61 @@ def write_private(path, text):
         f.write(text)
 
 
+def folder_settings():
+    return read_json_file(DATASET_FILE, {})
+
+
 def base_url():
-    url = os.environ.get("MDT_BASE_URL") or read_json_file(CONFIG_FILE, {}).get("base_url") or DEFAULT_BASE_URL
+    url = (base_url_option or os.environ.get("MDT_BASE_URL") or folder_settings().get("base_url")
+           or read_json_file(CONFIG_FILE, {}).get("base_url") or DEFAULT_BASE_URL)
     return url.rstrip("/")
 
 
+def derived_web_url(base):
+    parts = urllib.parse.urlsplit(base)
+    if parts.hostname in LOCAL_HOSTS and parts.port == LOCAL_API_PORT:
+        return f"{parts.scheme}://{parts.hostname}:{LOCAL_WEB_PORT}"
+    return base[: -len("/service")] if base.endswith("/service") else base
+
+
 def ui_url():
-    url = base_url()
-    return url[: -len("/service")] if url.endswith("/service") else url
+    base = base_url()
+    for settings in (folder_settings(), read_json_file(CONFIG_FILE, {})):
+        if settings.get("base_url", "").rstrip("/") == base and settings.get("web_url"):
+            return settings["web_url"].rstrip("/")
+    return derived_web_url(base)
 
 
 def read_token():
-    try:
-        with open(TOKEN_FILE, encoding="utf-8") as f:
-            return f.read().strip() or None
-    except FileNotFoundError:
-        return None
+    return read_json_file(TOKENS_FILE, {}).get(base_url())
+
+
+def save_token(token):
+    tokens = read_json_file(TOKENS_FILE, {})
+    tokens[base_url()] = token
+    write_private(TOKENS_FILE, json.dumps(tokens, indent=2))
 
 
 def dataset_key(args):
-    key = getattr(args, "dataset", None) or read_json_file(DATASET_FILE, {}).get("key")
+    key = getattr(args, "dataset", None) or folder_settings().get("key")
     if not key:
         raise MdtError("No dataset. Upload files with `upload`, or pass --dataset KEY.")
     return key
 
 
-def remember_dataset(key):
+def write_folder_settings(settings):
     with open(DATASET_FILE, "w", encoding="utf-8") as f:
-        json.dump({"key": key, "base_url": base_url(), "ui": f"{ui_url()}/dataset/{key}"}, f, indent=2)
+        json.dump(settings, f, indent=2)
         f.write("\n")
 
 
+def remember_dataset(key):
+    write_folder_settings({"key": key, "base_url": base_url(), "web_url": ui_url(), "ui": f"{ui_url()}/dataset/{key}"})
+
+
 def login_hint():
-    return f"Log in by running this in a terminal window of your own, so the password doesn't pass through the agent:\n  python3 {SCRIPT} login"
+    return ("Log in by running this in a terminal window of your own, so the password doesn't pass through the agent:\n"
+            f"  python3 {SCRIPT} --base-url {base_url()} login")
 
 
 def request(method, path, body=None, headers=None, auth=True, raw=False):
@@ -97,7 +126,7 @@ def request(method, path, body=None, headers=None, auth=True, raw=False):
         with urllib.request.urlopen(req, timeout=300) as res:
             renewed = res.headers.get("token")
             if auth and renewed:
-                write_private(TOKEN_FILE, renewed)
+                save_token(renewed)
             data = res.read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace").strip()
@@ -142,15 +171,33 @@ def out(args, data, lines):
 
 def cmd_config(args):
     config = read_json_file(CONFIG_FILE, {})
-    if args.base_url:
-        config["base_url"] = args.base_url.rstrip("/")
+    if args.base_url_default:
+        config = {"base_url": args.base_url_default.rstrip("/")}
+        if args.web_url:
+            config["web_url"] = args.web_url.rstrip("/")
         write_private(CONFIG_FILE, json.dumps(config, indent=2))
+    settings = folder_settings()
     print(f"API: {base_url()}\nWeb: {ui_url()}")
+    if settings.get("base_url"):
+        print(f"This folder uses {settings['base_url']}" + (f", dataset {settings['key']}" if settings.get("key") else ""))
+    print(f"Logged in: {'yes' if read_token() else 'no'}")
+
+
+def cmd_use(args):
+    url = args.url.rstrip("/")
+    settings = folder_settings()
+    if settings.get("key") and settings.get("base_url", "").rstrip("/") != url:
+        raise MdtError(f"This folder's dataset {settings['key']} is on {settings.get('base_url')}. Start a new folder for another installation.")
+    settings.update({"base_url": url, "web_url": (args.web_url or derived_web_url(url)).rstrip("/")})
+    write_folder_settings(settings)
+    print(f"This folder now uses the MDT at {url} (web: {settings['web_url']}).")
+    print(f"Logged in there: {'yes' if read_token() else 'no'}")
 
 
 def cmd_login(args):
     if not sys.stdin.isatty():
         raise MdtError("login reads the password from the keyboard. " + login_hint())
+    print(f"Logging in to the MDT at {base_url()}")
     user = args.user or input("GBIF username: ")
     password = getpass.getpass("GBIF password: ")
     basic = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
@@ -158,17 +205,20 @@ def cmd_login(args):
     token = (res or {}).get("token") if isinstance(res, dict) else None
     if not token:
         raise MdtError("The MDT did not return a token. Check the username and password.")
-    write_private(TOKEN_FILE, token)
+    save_token(token)
     print(f"Logged in to {base_url()} as {res.get('userName', user)}.")
 
 
 def cmd_whoami(args):
     res = request("POST", "/auth/whoami")
     datasets = res.get("datasets") or []
-    out(args, res, [f"Logged in as {res.get('userName')} at {base_url()}", f"{len(datasets)} datasets"])
+    out(args, res, [f"Logged in as {res.get('userName')} at {base_url()} (web: {ui_url()})", f"{len(datasets)} datasets"])
 
 
 def cmd_upload(args):
+    existing = folder_settings().get("key")
+    if existing and not args.new:
+        raise MdtError(f"This folder already has dataset {existing}. Use `add` to change its files, or `upload --new` to start another dataset and forget this one.")
     body, headers = multipart(args.files)
     key = request("POST", "/dataset/upload", body=body, headers=headers)
     key = key.strip() if isinstance(key, str) else key
@@ -417,17 +467,24 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="mdt.py", description="Drive the GBIF Metabarcoding Data Toolkit API.")
     p.add_argument("--dataset", help="dataset key; defaults to the one in ./mdt-dataset.json")
     p.add_argument("--json", action="store_true", help="print the raw response")
+    p.add_argument("--base-url", help="the MDT API to use for this command, such as http://localhost:9000")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("config", help="show or set the MDT installation")
-    s.add_argument("--base-url", help=f"the API base URL, default {DEFAULT_BASE_URL}")
+    s = sub.add_parser("config", help="show the installation in use, or set the default for folders without one")
+    s.add_argument("--set-default", dest="base_url_default", metavar="URL", help=f"the default API base URL, otherwise {DEFAULT_BASE_URL}")
+    s.add_argument("--web-url", help="its web address, when it can't be derived")
     s.set_defaults(fn=cmd_config)
+    s = sub.add_parser("use", help="choose the MDT installation for this folder")
+    s.add_argument("url", help="the API base URL: https://mdt.gbif.org/service, another installation's, or http://localhost:9000 for a local MDT")
+    s.add_argument("--web-url", help="its web address, when it can't be derived (localhost:9000 gives localhost:3000)")
+    s.set_defaults(fn=cmd_use)
     s = sub.add_parser("login", help="log in with a GBIF account; run it yourself, not through the agent")
     s.add_argument("--user")
     s.set_defaults(fn=cmd_login)
     sub.add_parser("whoami", help="check the login").set_defaults(fn=cmd_whoami)
 
     s = sub.add_parser("upload", help="create a dataset from files")
+    s.add_argument("--new", action="store_true", help="start another dataset even though this folder has one")
     s.add_argument("files", nargs="+")
     s.set_defaults(fn=cmd_upload)
     s = sub.add_parser("add", help="add or replace files in the dataset")
@@ -484,6 +541,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_publish)
 
     args = p.parse_args(argv)
+    global base_url_option
+    base_url_option = args.base_url
     if args.command == "mapping" and args.action == "set" and not args.file:
         p.error("mapping set needs a JSON file")
     try:
