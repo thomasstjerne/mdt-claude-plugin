@@ -65,12 +65,11 @@ Write a script (Python or R, as the researcher prefers) that reads their files a
 
 ## Stage 3: Upload
 
-1. Ask which MDT installation to use, unless this folder's `mdt-dataset.json` already names one (`mdt.py config` shows it):
-   - GBIF's MDT, `https://mdt.gbif.org/service` (the usual choice)
-   - another organisation's MDT: ask for its API address
+1. Ask which MDT installation to use, unless this folder's `mdt-dataset.json` already names one (`mdt.py config` shows it). `mdt.py installations` lists them: GBIF's own, open to anyone, and the national and regional ones registered with GBIF, each with its web address and description. Show the researcher the list, and point out any that fit where they or their data are from; a national installation may be where their node expects them to publish. Two more choices aren't in the list:
+   - an installation not registered with GBIF: ask for its API address
    - a local MDT for testing, `http://localhost:9000` (web pages at `http://localhost:3000`)
 
-   Then `mdt.py use <url>`. Every later command in this folder goes to that MDT, so a dataset never ends up split across installations; a different installation needs a new folder.
+   Then `mdt.py use <key or API address>`. Every later command in this folder goes to that MDT, so a dataset never ends up split across installations; a different installation needs a new folder.
 2. `mdt.py whoami`. If it isn't logged in to that installation, give them the `login` command it prints and wait. Each installation has its own login.
 3. `mdt.py upload <files>` creates the dataset and saves its key in `mdt-dataset.json`, so later commands find it. In a folder that already has a dataset, change its files with `add` instead.
 4. `mdt.py validate` shows the format the MDT recognised, each file's role and any errors. On `INVALID`, read the errors: a file whose name isn't recognised can be given its role with `mdt.py file-types '{"my file.tsv": "otuTable"}'` (roles: `otuTable`, `samples`, `taxa`, `defaultValues`). For FAIRe data with several assays, choose one with `mdt.py assay <name>`. Fix anything else in the shaping script, then `mdt.py add` the new files (or `delete-file`), and validate again.

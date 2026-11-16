@@ -30,7 +30,7 @@ You need Python 3.8 or later, and a [GBIF account](https://www.gbif.org/user/pro
 ## What leaves your machine
 
 - Claude reads your files to reshape them. Unless you run a local model, what it reads goes to the model provider.
-- `mdt.py upload` and `add` send the files you name to the MDT installation you chose: `https://mdt.gbif.org` by default, another installation, or a local MDT at `http://localhost:9000` when testing. The choice is kept per folder, in `mdt-dataset.json`.
+- `mdt.py upload` and `add` send the files you name to the MDT installation you chose: `https://mdt.gbif.org` by default, one of the national or regional installations registered with GBIF (`mdt.py installations` lists them), another installation, or a local MDT at `http://localhost:9000` when testing. The choice is kept per folder, in `mdt-dataset.json`.
 - `uat`, `validator` and `publish` ask the MDT to send the archive to GBIF.
 
 ## Feedback

@@ -34,6 +34,8 @@ SCRIPT = os.path.abspath(__file__)
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
 LOCAL_API_PORT, LOCAL_WEB_PORT = 9000, 3000
 USER_AGENT = "mdt.py (https://github.com/thomasstjerne/mdt-claude-plugin)"
+INSTALLATIONS_URL = "https://api.gbif.org/v1/installation?type=MDT_INSTALLATION&limit=100"
+UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 base_url_option = None
 
 
@@ -105,7 +107,11 @@ def write_folder_settings(settings):
 
 
 def remember_dataset(key):
-    write_folder_settings({"key": key, "base_url": base_url(), "web_url": ui_url(), "ui": f"{ui_url()}/dataset/{key}"})
+    settings = {"key": key, "base_url": base_url(), "web_url": ui_url(), "ui": f"{ui_url()}/dataset/{key}"}
+    title = folder_settings().get("installation")
+    if title and folder_settings().get("base_url", "").rstrip("/") == settings["base_url"]:
+        settings["installation"] = title
+    write_folder_settings(settings)
 
 
 def login_hint():
@@ -182,18 +188,74 @@ def cmd_config(args):
     settings = folder_settings()
     print(f"API: {base_url()}\nWeb: {ui_url()}")
     if settings.get("base_url"):
-        print(f"This folder uses {settings['base_url']}" + (f", dataset {settings['key']}" if settings.get("key") else ""))
+        print(f"This folder uses {settings.get('installation') or 'the MDT'} at {settings['base_url']}" + (f", dataset {settings['key']}" if settings.get("key") else ""))
     print(f"Logged in: {'yes' if read_token() else 'no'}")
 
 
+def service_url(feed_url):
+    # The registry points at each installation's RSS feed, under the API (…/service/rss) or not; the API is at /service
+    parts = urllib.parse.urlsplit(feed_url)
+    path = parts.path
+    path = path[: path.index("/service") + len("/service")] if "/service" in path else path.rstrip("/") + "/service"
+    return f"{parts.scheme}://{parts.netloc}{path}"
+
+
+def registered_installations():
+    data = fetch_json(INSTALLATIONS_URL) or {}
+    found = []
+    for inst in data.get("results", []):
+        feed = next((e["url"] for e in inst.get("endpoints", []) if e.get("type") == "FEED" and e.get("url")), None)
+        if inst.get("disabled") or not feed:
+            continue
+        base = service_url(feed)
+        found.append({"key": inst["key"], "title": inst.get("title", "").strip(), "description": (inst.get("description") or "").strip(),
+                      "base_url": base, "web_url": derived_web_url(base)})
+    found.sort(key=lambda i: i["title"].lower())
+    if not any(i["base_url"] == DEFAULT_BASE_URL for i in found):
+        found.insert(0, {"key": None, "title": "GBIF Metabarcoding Data Toolkit", "description": "GBIF's own installation, open to anyone.",
+                         "base_url": DEFAULT_BASE_URL, "web_url": derived_web_url(DEFAULT_BASE_URL)})
+    return found
+
+
+def shorten(text, limit=160):
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def cmd_installations(args):
+    found = registered_installations()
+    lines = []
+    for inst in found:
+        lines += [f"{inst['title']}", f"  {inst['web_url']}  (API {inst['base_url']}" + (f", key {inst['key']})" if inst["key"] else ")")]
+        if inst["description"]:
+            lines.append(f"  {shorten(inst['description'])}")
+    lines += ["", f"Choose one with `use <API or key>`; for a local MDT when testing, `use http://localhost:{LOCAL_API_PORT}`."]
+    out(args, found, lines)
+
+
 def cmd_use(args):
-    url = args.url.rstrip("/")
+    url, title = args.url.rstrip("/"), None
+    if UUID_PATTERN.match(url):
+        inst = next((i for i in registered_installations() if i["key"] == url.lower()), None)
+        if not inst:
+            raise MdtError(f"No MDT installation with key {url} in GBIF's registry; `installations` lists them.")
+        url, title = inst["base_url"], inst["title"]
     settings = folder_settings()
     if settings.get("key") and settings.get("base_url", "").rstrip("/") != url:
         raise MdtError(f"This folder's dataset {settings['key']} is on {settings.get('base_url')}. Start a new folder for another installation.")
+    try:
+        answered = fetch_json(f"{url}/enum/format") is not None
+    except (MdtError, ValueError):
+        answered = False
+    if not answered:
+        print(f"Warning: no MDT answered at {url}. Check the address, or start the local MDT.", file=sys.stderr)
     settings.update({"base_url": url, "web_url": (args.web_url or derived_web_url(url)).rstrip("/")})
+    if title:
+        settings["installation"] = title
+    else:
+        settings.pop("installation", None)
     write_folder_settings(settings)
-    print(f"This folder now uses the MDT at {url} (web: {settings['web_url']}).")
+    print(f"This folder now uses {title or 'the MDT'} at {url} (web: {settings['web_url']}).")
     print(f"Logged in there: {'yes' if read_token() else 'no'}")
 
 
@@ -597,8 +659,9 @@ def main(argv=None):
     s.add_argument("--set-default", dest="base_url_default", metavar="URL", help=f"the default API base URL, otherwise {DEFAULT_BASE_URL}")
     s.add_argument("--web-url", help="its web address, when it can't be derived")
     s.set_defaults(fn=cmd_config)
+    sub.add_parser("installations", help="list the MDT installations registered with GBIF").set_defaults(fn=cmd_installations)
     s = sub.add_parser("use", help="choose the MDT installation for this folder")
-    s.add_argument("url", help="the API base URL: https://mdt.gbif.org/service, another installation's, or http://localhost:9000 for a local MDT")
+    s.add_argument("url", help="the API base URL or the installation's key from `installations`, or http://localhost:9000 for a local MDT")
     s.add_argument("--web-url", help="its web address, when it can't be derived (localhost:9000 gives localhost:3000)")
     s.set_defaults(fn=cmd_use)
     s = sub.add_parser("login", help="log in with a GBIF account; run it yourself, not through the agent")
