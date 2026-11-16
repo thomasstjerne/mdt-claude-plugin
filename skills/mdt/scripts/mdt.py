@@ -12,9 +12,11 @@ with `config --set-default`, and https://mdt.gbif.org/service.
 import argparse
 import base64
 import getpass
+import html
 import json
 import mimetypes
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -31,6 +33,7 @@ POLL_SECONDS = 5
 SCRIPT = os.path.abspath(__file__)
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
 LOCAL_API_PORT, LOCAL_WEB_PORT = 9000, 3000
+USER_AGENT = "mdt.py (https://github.com/thomasstjerne/mdt-claude-plugin)"
 base_url_option = None
 
 
@@ -457,6 +460,126 @@ def cmd_publish(args):
     out(args, res, [f"Published: https://www.gbif.org/dataset/{prod}" if prod else "Submitted for publication; no dataset key in the response."])
 
 
+def fetch_json(url, headers=None):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise MdtError(f"{url} failed with {e.code}")
+    except urllib.error.URLError as e:
+        raise MdtError(f"Could not reach {url}: {e.reason}")
+
+
+def strip_markup(text):
+    text = re.sub(r"<jats:title>.*?</jats:title>", "", text or "", flags=re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def licences(urls):
+    return ", ".join(dict.fromkeys(u.rstrip("/") for u in urls if u and u.startswith("http")))
+
+
+def person(given, family, affiliation, orcid):
+    p = {"givenName": given or "", "surName": family or "", "organizationName": affiliation or ""}
+    orcid = re.sub(r"^https?://orcid\.org/", "", orcid or "")
+    if orcid:
+        p["userId"] = orcid
+    return p
+
+
+def from_crossref(doi):
+    res = fetch_json(f"https://api.crossref.org/works/{urllib.parse.quote(doi)}")
+    if not res:
+        return None
+    m = res.get("message", {})
+    year = next(((m.get(f) or {}).get("date-parts", [[None]])[0][0]
+                 for f in ("published", "published-print", "published-online", "issued")
+                 if (m.get(f) or {}).get("date-parts", [[None]])[0][0]), "")
+    funding = ["; ".join([f.get("name", "")] + f.get("award", [])) for f in m.get("funder", [])]
+    return {
+        "source": "CrossRef",
+        "title": html.unescape((m.get("title") or [""])[0]),
+        "creators": [person(a.get("given"), a.get("family") or a.get("name"),
+                            ((a.get("affiliation") or [{}])[0]).get("name"), a.get("ORCID"))
+                     for a in m.get("author", [])],
+        "abstract": strip_markup(m.get("abstract")),
+        "year": str(year or ""),
+        "venue": html.unescape((m.get("container-title") or [""])[0] or m.get("publisher", "")),
+        "license": licences(lic.get("URL") for lic in m.get("license", [])),
+        "funding": funding,
+    }
+
+
+def from_datacite(doi):
+    res = fetch_json(f"https://api.datacite.org/dois/{urllib.parse.quote(doi)}", {"Accept": "application/json"})
+    if not res:
+        return None
+    a = res.get("data", {}).get("attributes", {})
+    creators = []
+    for c in a.get("creators", []):
+        ids = {(n.get("nameIdentifierScheme") or "").upper(): n.get("nameIdentifier", "") for n in c.get("nameIdentifiers") or []}
+        aff = (c.get("affiliation") or [""])[0]
+        aff = aff.get("name", "") if isinstance(aff, dict) else aff
+        if c.get("nameType") == "Organizational":
+            creators.append({"organizationName": c.get("name", "")})
+        else:
+            creators.append(person(c.get("givenName"), c.get("familyName") or c.get("name"), aff, ids.get("ORCID")))
+    descriptions = a.get("descriptions") or []
+    abstract = next((d for d in descriptions if d.get("descriptionType") == "Abstract"), (descriptions or [{}])[0])
+    return {
+        "source": "DataCite",
+        "title": ((a.get("titles") or [{}])[0]).get("title", ""),
+        "creators": creators,
+        "abstract": strip_markup(abstract.get("description")),
+        "year": str(a.get("publicationYear") or ""),
+        "venue": a.get("publisher", "") if isinstance(a.get("publisher"), str) else (a.get("publisher") or {}).get("name", ""),
+        "license": licences(r.get("rightsUri") for r in a.get("rightsList", [])),
+        "funding": ["; ".join(filter(None, [f.get("funderName"), f.get("awardNumber")])) for f in a.get("fundingReferences", [])],
+    }
+
+
+def citation(meta, doi):
+    names = "; ".join(", ".join(filter(None, [c.get("surName") or c.get("organizationName"), c.get("givenName")])) for c in meta["creators"])
+    return f"{names} ({meta['year']}). {meta['title']}. {meta['venue']}. https://doi.org/{doi}"
+
+
+def cmd_doi(args):
+    doi = re.sub(r"^(https?://(dx\.)?doi\.org/|doi:)", "", args.doi.strip(), flags=re.I)
+    meta = from_crossref(doi)
+    meta = meta if meta and meta["title"] else from_datacite(doi)
+    if not meta or not meta["title"]:
+        raise MdtError(f"Neither CrossRef nor DataCite knows the DOI {doi}.")
+    draft = {
+        "title": meta["title"],
+        "description": meta["abstract"],
+        "creator": meta["creators"],
+        "bibliographicReferences": [{"key": doi, "value": citation(meta, doi)}],
+    }
+    if meta["funding"]:
+        draft["project"] = {"funding": "; ".join(meta["funding"])}
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(draft, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    named = lambda c: " ".join(filter(None, [c.get("givenName"), c.get("surName")])) or c.get("organizationName", "")
+    out(args, {"source": meta["source"], "doi": doi, "license": meta["license"], "draft": draft}, [
+        f"From {meta['source']} for {doi}, written to {args.output}:",
+        f"  title: {meta['title']}",
+        f"  creators ({len(meta['creators'])}): " + "; ".join(
+            named(c) + "".join(f" [{x}]" for x in (c.get("organizationName") if c.get("surName") else None, c.get("userId")) if x)
+            for c in meta["creators"]),
+        f"  abstract: {len(meta['abstract'])} characters" if meta["abstract"] else "  abstract: none",
+        f"  funding: {draft['project']['funding']}" if meta["funding"] else "  funding: none",
+        f"  reference: {draft['bibliographicReferences'][0]['value']}",
+        f"Licence of the publication, not of the data: {meta['license']}" if meta["license"] else None,
+        "Not in a DOI record: licence, contact and e-mail addresses. Ask the researcher. The abstract describes the"
+        " publication: rewrite it to describe the dataset. Merge what they confirm into eml.json, then `metadata eml.json`.",
+    ])
+
+
 def cmd_log(args):
     key = dataset_key(args)
     text = request("GET", f"/dataset/{key}/log.txt", auth=False, raw=True).decode("utf-8", "replace")
@@ -526,6 +649,10 @@ def main(argv=None):
     s = sub.add_parser("metadata", help="save the dataset metadata (EML) from a JSON file")
     s.add_argument("file")
     s.set_defaults(fn=cmd_metadata)
+    s = sub.add_parser("doi", help="draft metadata (title, creators, abstract, reference) from a publication or dataset DOI")
+    s.add_argument("doi", help="10.1234/example, https://doi.org/10.1234/example or doi:10.1234/example")
+    s.add_argument("-o", "--output", default="eml-from-doi.json", help="the draft to write (default: eml-from-doi.json)")
+    s.set_defaults(fn=cmd_doi)
 
     s = sub.add_parser("dwc", help="build the Darwin Core Archive")
     s.add_argument("--wait", action="store_true")

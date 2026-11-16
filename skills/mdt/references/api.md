@@ -20,6 +20,7 @@ Authentication is a GBIF account. `login` posts the username and password once, 
 | `summary` | `GET /dataset/{key}/data/metrics`, `/data/geojson` | public; the geojson's `metadata.errors` are the samples without valid coordinates |
 | `log` | `GET /dataset/{key}/log.txt` | |
 | `metadata` | `POST /dataset/{key}/metadata` | the EML as JSON; see `metadata.md` |
+| `doi` | `GET https://api.crossref.org/works/{doi}`, then `GET https://api.datacite.org/dois/{doi}` | not the MDT; public, no login. Writes a draft, sends nothing to the MDT |
 | `dwc` | `POST /dataset/{key}/dwc`; progress in `GET /dataset/{key}/dwc` (`.dwc.steps`) | refused while the metadata is incomplete |
 | `dwc-dp` | `POST /dataset/{key}/dwc-dp`; progress in `GET /dataset/{key}/dwc-dp` (`.dwcdp.steps`) | |
 | `uat` | `POST /dataset/{key}/register-in-gbif-uat` | `publishing.gbifUatDatasetKey` |

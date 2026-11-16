@@ -48,6 +48,8 @@ Look at every file they give you: the tables (sheets, columns, a few rows), the 
 - what the study-wide values are: target gene, primers and their names, sequencing platform, and so on (see `references/input-formats.md`, Study file)
 - which samples look like controls or blanks
 
+Ask whether the data belongs to a published paper or a dataset with a DOI (Zenodo, Dryad, Figshare and the like). If so, it can fill much of the metadata in Stage 6, and the paper's methods may hold coordinates, primers and the sequencing platform the files lack.
+
 Tell the researcher what you found, what is missing, and the questions only they can answer.
 
 ## Stage 2: Shape
@@ -88,7 +90,7 @@ Write a script (Python or R, as the researcher prefers) that reads their files a
 
 ## Stage 6: Describe
 
-Read `references/metadata.md`. Collect title, description, licence, contact and creators from their documents first, then ask for what's missing; confirm each with them. Write it to `eml.json` and run `mdt.py metadata eml.json`. `status` then says whether anything required is missing.
+Read `references/metadata.md`. If there is a DOI, ask whether to base the metadata on it, and with their yes run `mdt.py doi <DOI>`: it drafts title, creators, abstract, funding and a bibliographic reference from CrossRef or DataCite into `eml-from-doi.json`. Otherwise collect them from their documents. Either way, ask for what's missing (licence, contact, e-mail addresses) and confirm each value with them, saying where it came from. Write it to `eml.json` and run `mdt.py metadata eml.json`. `status` then says whether anything required is missing.
 
 ## Stage 7: Test
 
