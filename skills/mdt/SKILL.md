@@ -94,7 +94,7 @@ Read `references/metadata.md`. If there is a DOI, ask whether to base the metada
 ## Stage 7: Test
 
 1. `mdt.py dwc --wait` builds the Darwin Core Archive. `mdt.py dwc-dp --wait` builds the newer Darwin Core Data Package, if they want it.
-2. `mdt.py uat` registers the dataset on GBIF's test site (UAT) and prints its link. Tell the researcher it can take some minutes for GBIF to index it, and ask them to look.
+2. `mdt.py test` registers the dataset on GBIF's test site, gbif-test.org, and prints its link. Tell the researcher it can take some minutes for GBIF to index it, and ask them to look.
 3. `mdt.py validator` sends the archive to GBIF's data validator, as their GBIF account; GBIF emails them when the report is ready. If it says the MDT needs them to log in to GBIF again, give them the `gbif-login` command it prints and wait, then run `validator` again.
 
 ## Stage 8: Publish

@@ -565,11 +565,11 @@ def cmd_dwc_dp(args):
     build(args, "dwc-dp", "dwcdp", "Darwin Core Data Package")
 
 
-def cmd_uat(args):
+def cmd_test(args):
     key = dataset_key(args)
     res = request("POST", f"/dataset/{key}/register-in-gbif-uat") or {}
-    uat = (res.get("publishing") or {}).get("gbifUatDatasetKey")
-    out(args, res, [f"Registered on the GBIF test site: https://www.gbif-test.org/dataset/{uat}" if uat else "Registered on the GBIF test site; no dataset key in the response."])
+    test_key = (res.get("publishing") or {}).get("gbifUatDatasetKey")
+    out(args, res, [f"Registered on the GBIF test site: https://www.gbif-test.org/dataset/{test_key}" if test_key else "Registered on the GBIF test site; no dataset key in the response."])
 
 
 def cmd_validator(args):
@@ -794,7 +794,7 @@ def main(argv=None):
     s = sub.add_parser("dwc-dp", help="build the Darwin Core Data Package")
     s.add_argument("--wait", action="store_true")
     s.set_defaults(fn=cmd_dwc_dp)
-    sub.add_parser("uat", help="register the archive on the GBIF test site").set_defaults(fn=cmd_uat)
+    sub.add_parser("test", aliases=["uat"], help="register the archive on the GBIF test site, gbif-test.org").set_defaults(fn=cmd_test)
     sub.add_parser("validator", help="send the archive to the GBIF data validator").set_defaults(fn=cmd_validator)
     s = sub.add_parser("publish", help="publish on GBIF.org; only on the researcher's explicit word")
     s.add_argument("--organization", required=True, help="the publishing organization's GBIF key")

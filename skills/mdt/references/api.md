@@ -29,7 +29,7 @@ The data validator runs as the researcher's GBIF account, with the GBIF login th
 | `doi` | `GET https://api.crossref.org/works/{doi}`, then `GET https://api.datacite.org/dois/{doi}` | not the MDT; public, no login. Writes a draft, sends nothing to the MDT |
 | `dwc` | `POST /dataset/{key}/dwc`; progress in `GET /dataset/{key}/dwc` (`.dwc.steps`) | refused while the metadata is incomplete |
 | `dwc-dp` | `POST /dataset/{key}/dwc-dp`; progress in `GET /dataset/{key}/dwc-dp` (`.dwcdp.steps`) | |
-| `uat` | `POST /dataset/{key}/register-in-gbif-uat` | `publishing.gbifUatDatasetKey` |
+| `test` | `POST /dataset/{key}/register-in-gbif-uat` | `publishing.gbifUatDatasetKey`; the dataset is then at `https://www.gbif-test.org/dataset/{key}`. The API's names still say UAT, GBIF's former name for the test site |
 | `validator` | `POST /dataset/{key}/data-validator` | `key` of the GBIF data validator report; `401 gbif-login-required` when the MDT needs `gbif-login` |
 | `publish` | `POST /dataset/{key}/register-in-gbif-prod?organizationKey={org}` | `publishing.gbifProdDatasetKey` |
 
