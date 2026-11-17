@@ -569,7 +569,7 @@ def cmd_uat(args):
     key = dataset_key(args)
     res = request("POST", f"/dataset/{key}/register-in-gbif-uat") or {}
     uat = (res.get("publishing") or {}).get("gbifUatDatasetKey")
-    out(args, res, [f"Registered on the GBIF test site (UAT): https://www.gbif-uat.org/dataset/{uat}" if uat else "Registered on GBIF UAT; no dataset key in the response."])
+    out(args, res, [f"Registered on the GBIF test site: https://www.gbif-test.org/dataset/{uat}" if uat else "Registered on the GBIF test site; no dataset key in the response."])
 
 
 def cmd_validator(args):
