@@ -127,7 +127,7 @@ def token_claims(token):
 def login_hint():
     return ("Log in by running this in a terminal window of your own, so the token doesn't pass through the agent:\n"
             f"  python3 {SCRIPT} --base-url {base_url()} login\n"
-            f"It asks for an API token, which you create on your profile page in the MDT: {ui_url()}/user-profile")
+            f"It asks for an API token, which you create on your profile page in the MDT: {ui_url()}/user-profile/api-tokens")
 
 
 def gbif_login_hint():
@@ -303,7 +303,7 @@ def cmd_login(args):
         if not token:
             raise MdtError("The MDT did not return a token. Check the username and password.")
     else:
-        print(f"Create an API token on your profile page, {ui_url()}/user-profile, and paste it here.")
+        print(f"Create an API token on your profile page, {ui_url()}/user-profile/api-tokens, and paste it here.")
         print("(An MDT without API tokens on that page is an older version: use `login --password` there.)")
         token = getpass.getpass("API token (not shown): ").strip()
         if token.lower().startswith("bearer "):

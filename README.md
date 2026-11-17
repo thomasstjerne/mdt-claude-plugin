@@ -25,7 +25,7 @@ You need Python 3.8 or later, and a [GBIF account](https://www.gbif.org/user/pro
 
 ## Logging in
 
-Log in to the MDT's web pages with your GBIF account and create an API token on your profile page (`https://mdt.gbif.org/user-profile`, or the same page on another installation), with a lifetime of 1, 7 or 30 days. Then run `mdt.py login` in a terminal window of your own, not through Claude, and paste the token there, so it never enters the conversation. It is stored in `~/.config/mdt/`, one per installation. The token gives access to your datasets on that MDT only, and nothing else of your GBIF account. It ends when it expires, when you revoke it on the profile page, or when the MDT restarts; then create a new one and log in again.
+Log in to the MDT's web pages with your GBIF account and create an API token on your profile page (`https://mdt.gbif.org/user-profile/api-tokens`, or the same page on another installation), with a lifetime of 1, 7 or 30 days. Then run `mdt.py login` in a terminal window of your own, not through Claude, and paste the token there, so it never enters the conversation. It is stored in `~/.config/mdt/`, one per installation. The token gives access to your datasets on that MDT only, and nothing else of your GBIF account. It ends when it expires, when you revoke it on the profile page, or when the MDT restarts; then create a new one and log in again.
 
 The GBIF data validator runs as your GBIF account. When the MDT asks you to log in to GBIF again for it, run `mdt.py gbif-login`, also in your own terminal, and enter your GBIF password.
 
