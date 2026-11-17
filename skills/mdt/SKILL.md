@@ -34,7 +34,7 @@ Then ask how familiar they are with Darwin Core and GBIF (new to it, used it bef
 - **The researcher decides.** Which samples are controls, what a column means, which licence, what the study values are: propose an answer with its source (file, sheet, row or document page), and use it only once they agree.
 - **Keep their files intact.** Write the shaping script and its output in a new folder, such as `mdt-input/`, and never edit the originals. The script stays, so the shaping can be rerun when the source data is corrected.
 - **Keep the finest detail.** One read count per sequence per sample. Don't sum, filter or rarefy unless the researcher asks for it.
-- **Credentials are typed by the researcher.** Never ask for a password or put one in a command. When a command says the login is missing or expired, give them the `login` command it prints, to run in a terminal window of their own, and wait until they say it's done.
+- **Credentials are typed by the researcher.** Never ask for a password or a token, or put one in a command, and if they paste one into the conversation, tell them to revoke it on their profile page and create a new one. When a command says the login is missing or expired, give them the `login` (or `gbif-login`) command it prints, to run in a terminal window of their own, and wait until they say it's done.
 - **Publishing on GBIF.org is theirs.** Only run `publish` after they have asked for it in their own words, for a dataset they've seen on the GBIF test site.
 - **Learn the MDT from its answers.** `validate`, `status` and `summary` say what the MDT found and what is missing. Relay them; don't guess around them.
 
@@ -70,7 +70,7 @@ Write a script (Python or R, as the researcher prefers) that reads their files a
    - a local MDT for testing, `http://localhost:9000` (web pages at `http://localhost:3000`)
 
    Then `mdt.py use <key or API address>`. Every later command in this folder goes to that MDT, so a dataset never ends up split across installations; a different installation needs a new folder.
-2. `mdt.py whoami`. If it isn't logged in to that installation, give them the `login` command it prints and wait. Each installation has its own login.
+2. `mdt.py whoami`. If it isn't logged in to that installation, give them the `login` command it prints and wait. `login` asks for an API token: the researcher logs in to the MDT's web pages with their GBIF account, creates a token on their profile page (`<web>/user-profile`) and pastes it into `login`. Suggest a lifetime that covers the work, such as 7 days. Each installation has its own login, and a token ends when it expires, is revoked, or the MDT restarts; then they create a new one. If the profile page has no API tokens, the installation is an older version: `login --password` logs in with the GBIF password instead.
 3. `mdt.py upload <files>` creates the dataset and saves its key in `mdt-dataset.json`, so later commands find it. In a folder that already has a dataset, change its files with `add` instead.
 4. `mdt.py validate` shows the format the MDT recognised, each file's role and any errors. On `INVALID`, read the errors: a file whose name isn't recognised can be given its role with `mdt.py file-types '{"my file.tsv": "otuTable"}'` (roles: `otuTable`, `samples`, `taxa`, `defaultValues`). For FAIRe data with several assays, choose one with `mdt.py assay <name>`. Fix anything else in the shaping script, then `mdt.py add` the new files (or `delete-file`), and validate again.
 
@@ -95,7 +95,7 @@ Read `references/metadata.md`. If there is a DOI, ask whether to base the metada
 
 1. `mdt.py dwc --wait` builds the Darwin Core Archive. `mdt.py dwc-dp --wait` builds the newer Darwin Core Data Package, if they want it.
 2. `mdt.py uat` registers the dataset on GBIF's test site (UAT) and prints its link. Tell the researcher it can take some minutes for GBIF to index it, and ask them to look.
-3. `mdt.py validator` sends the archive to GBIF's data validator; GBIF emails them when the report is ready.
+3. `mdt.py validator` sends the archive to GBIF's data validator, as their GBIF account; GBIF emails them when the report is ready. If it says the MDT needs them to log in to GBIF again, give them the `gbif-login` command it prints and wait, then run `validator` again.
 
 ## Stage 8: Publish
 

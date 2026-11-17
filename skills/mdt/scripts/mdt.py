@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Drive the GBIF Metabarcoding Data Toolkit (MDT) API from the command line.
 
-Standard library only. Login tokens are kept per installation in ~/.config/mdt/, never printed,
-and renewed from the `token` header every authenticated response carries. The installation and
-the dataset being worked on are remembered in ./mdt-dataset.json, so commands run in the same
-directory always go back to the MDT the dataset is on.
+Standard library only. The login is an API token the researcher creates on their profile page in
+the MDT and pastes into `login`; tokens are kept per installation in ~/.config/mdt/, never printed.
+A token from a password login (`login --password`) is renewed from the `token` header every
+authenticated response carries. The installation and the dataset being worked on are remembered
+in ./mdt-dataset.json, so commands run in the same directory always go back to the MDT the
+dataset is on.
 
 The installation is, in order: --base-url, MDT_BASE_URL, ./mdt-dataset.json, the default set
 with `config --set-default`, and https://mdt.gbif.org/service.
@@ -114,16 +116,31 @@ def remember_dataset(key):
     write_folder_settings(settings)
 
 
+def token_claims(token):
+    try:
+        part = token.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except (IndexError, ValueError):
+        return {}
+
+
 def login_hint():
-    return ("Log in by running this in a terminal window of your own, so the password doesn't pass through the agent:\n"
-            f"  python3 {SCRIPT} --base-url {base_url()} login")
+    return ("Log in by running this in a terminal window of your own, so the token doesn't pass through the agent:\n"
+            f"  python3 {SCRIPT} --base-url {base_url()} login\n"
+            f"It asks for an API token, which you create on your profile page in the MDT: {ui_url()}/user-profile")
 
 
-def request(method, path, body=None, headers=None, auth=True, raw=False):
+def gbif_login_hint():
+    return ("The MDT does this as your GBIF account, and needs you to log in to GBIF again. Run this in a terminal window of your own:\n"
+            f"  python3 {SCRIPT} --base-url {base_url()} gbif-login\n"
+            "then run the command again.")
+
+
+def request(method, path, body=None, headers=None, auth=True, raw=False, token=None):
     url = path if path.startswith("http") else f"{base_url()}{path}"
     headers = dict(headers or {})
     if auth:
-        token = read_token()
+        token = token or read_token()
         if not token:
             raise MdtError("Not logged in. " + login_hint())
         headers["Authorization"] = f"Bearer {token}"
@@ -139,8 +156,12 @@ def request(method, path, body=None, headers=None, auth=True, raw=False):
             data = res.read()
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace").strip()
-        if e.code in (401, 403):
-            raise MdtError(f"{method} {path} was refused ({e.code}): the login has expired, or this account may not change the dataset. " + login_hint())
+        if e.code == 401 and "gbif-login-required" in detail:
+            raise MdtError(f"{method} {path}: " + gbif_login_hint())
+        if e.code == 401:
+            raise MdtError(f"{method} {path} was refused (401): the login has expired or was revoked, or the MDT has restarted. " + login_hint())
+        if e.code == 403:
+            raise MdtError(f"{method} {path} was refused (403): this account may not change the dataset, or the login has expired. " + login_hint())
         raise MdtError(f"{method} {path} failed with {e.code}" + (f": {detail[:500]}" if detail else ""))
     except urllib.error.URLError as e:
         raise MdtError(f"Could not reach {url}: {e.reason}")
@@ -259,25 +280,71 @@ def cmd_use(args):
     print(f"Logged in there: {'yes' if read_token() else 'no'}")
 
 
+def basic_auth(user, password):
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+
+
+def expiry_line(token):
+    claims = token_claims(token)
+    if claims.get("kind") == "api" and claims.get("exp"):
+        return "API token, valid until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(claims["exp"]))
+    return None
+
+
 def cmd_login(args):
     if not sys.stdin.isatty():
-        raise MdtError("login reads the password from the keyboard. " + login_hint())
+        raise MdtError("login reads from the keyboard. " + login_hint())
     print(f"Logging in to the MDT at {base_url()}")
-    user = args.user or input("GBIF username: ")
-    password = getpass.getpass("GBIF password: ")
-    basic = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
-    res = request("POST", "/auth/login", headers={"Authorization": f"Basic {basic}"}, auth=False)
-    token = (res or {}).get("token") if isinstance(res, dict) else None
-    if not token:
-        raise MdtError("The MDT did not return a token. Check the username and password.")
+    if args.password:
+        user = args.user or input("GBIF username: ")
+        password = getpass.getpass("GBIF password: ")
+        res = request("POST", "/auth/login", headers={"Authorization": basic_auth(user, password)}, auth=False)
+        token = (res or {}).get("token") if isinstance(res, dict) else None
+        if not token:
+            raise MdtError("The MDT did not return a token. Check the username and password.")
+    else:
+        print(f"Create an API token on your profile page, {ui_url()}/user-profile, and paste it here.")
+        print("(An MDT without API tokens on that page is an older version: use `login --password` there.)")
+        token = getpass.getpass("API token (not shown): ").strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        if token.count(".") != 2:
+            raise MdtError("That doesn't look like an API token: copy the whole token from the profile page.")
+        try:
+            res = request("POST", "/auth/whoami", token=token)
+        except MdtError:
+            raise MdtError(f"The MDT at {base_url()} did not accept the token. It may have expired or been revoked, or belong to another installation.")
     save_token(token)
-    print(f"Logged in to {base_url()} as {res.get('userName', user)}.")
+    print(f"Logged in to {base_url()} as {(res or {}).get('userName', '?')}.")
+    if expiry_line(token):
+        print(expiry_line(token) + ".")
+
+
+def cmd_gbif_login(args):
+    if not sys.stdin.isatty():
+        raise MdtError("gbif-login reads the password from the keyboard. " + gbif_login_hint())
+    token = read_token()
+    if not token:
+        raise MdtError("Not logged in. " + login_hint())
+    me = request("POST", "/auth/whoami")
+    user = args.user or me.get("userName") or input("GBIF username: ")
+    print(f"Logging in to GBIF as {user}, for the MDT at {base_url()}")
+    password = getpass.getpass("GBIF password: ")
+    try:
+        request("POST", "/auth/gbif-login", auth=False,
+                headers={"Authorization": basic_auth(user, password), "X-MDT-Token": f"Bearer {token}"})
+    except MdtError as e:
+        if "(401)" in str(e):
+            raise
+        raise MdtError("GBIF did not accept the login. Check the password; the account must be the one logged in to the MDT.")
+    print("Logged in to GBIF. Run the command again.")
 
 
 def cmd_whoami(args):
     res = request("POST", "/auth/whoami")
     datasets = res.get("datasets") or []
-    out(args, res, [f"Logged in as {res.get('userName')} at {base_url()} (web: {ui_url()})", f"{len(datasets)} datasets"])
+    expiry = expiry_line(read_token())
+    out(args, res, [f"Logged in as {res.get('userName')} at {base_url()} (web: {ui_url()})", f"{len(datasets)} datasets"] + ([expiry] if expiry else []))
 
 
 def cmd_upload(args):
@@ -664,9 +731,13 @@ def main(argv=None):
     s.add_argument("url", help="the API base URL or the installation's key from `installations`, or http://localhost:9000 for a local MDT")
     s.add_argument("--web-url", help="its web address, when it can't be derived (localhost:9000 gives localhost:3000)")
     s.set_defaults(fn=cmd_use)
-    s = sub.add_parser("login", help="log in with a GBIF account; run it yourself, not through the agent")
-    s.add_argument("--user")
+    s = sub.add_parser("login", help="log in with an API token from the MDT profile page; run it yourself, not through the agent")
+    s.add_argument("--password", action="store_true", help="log in with the GBIF username and password instead, for an MDT without API tokens")
+    s.add_argument("--user", help="the GBIF username, with --password")
     s.set_defaults(fn=cmd_login)
+    s = sub.add_parser("gbif-login", help="log in to GBIF again, when the validator asks for it; run it yourself, not through the agent")
+    s.add_argument("--user", help="the GBIF username, if not the one logged in to the MDT")
+    s.set_defaults(fn=cmd_gbif_login)
     sub.add_parser("whoami", help="check the login").set_defaults(fn=cmd_whoami)
 
     s = sub.add_parser("upload", help="create a dataset from files")
