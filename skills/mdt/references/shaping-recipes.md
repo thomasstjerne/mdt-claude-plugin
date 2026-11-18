@@ -49,25 +49,45 @@ Without QIIME 2 installed, a `.qza` is a zip: `data/` inside it holds the same f
 
 ## phyloseq (R)
 
+A phyloseq object is usually saved as `.rds` (`readRDS`), sometimes inside an `.RData` file (`load`, then find the object of class `phyloseq`). This writes all three files from it:
+
 ```r
 library(phyloseq)
+ps <- readRDS("path/to/object.rds")
+dir.create("mdt-input", showWarnings = FALSE)
+# Quoted, so a tab or line break inside a value doesn't split the row; the MDT reads the quotes
+write_tsv <- function(df, file) write.table(df, file, sep = "\t", quote = TRUE, qmethod = "double", row.names = FALSE, na = "")
+
+# Taxa named by their sequence get short ids, and the sequence goes to DNA_sequence
+taxa <- taxa_names(ps)
+named_by_sequence <- all(grepl("^[ACGTUN]+$", taxa, ignore.case = TRUE))
+ids <- if (named_by_sequence) paste0("ASV_", seq_along(taxa)) else taxa
+refs <- refseq(ps, errorIfNULL = FALSE)
+seqs <- if (!is.null(refs)) as.character(refs)[taxa] else if (named_by_sequence) taxa else NA
+
 otu <- as(otu_table(ps), "matrix")
 if (!taxa_are_rows(ps)) otu <- t(otu)
-write.table(data.frame(id = rownames(otu), otu, check.names = FALSE),
-            "mdt-input/otu_table.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
+write_tsv(data.frame(id = ids, otu[taxa, , drop = FALSE], check.names = FALSE), "mdt-input/otu_table.tsv")
 
-tax <- as.data.frame(as(tax_table(ps), "matrix"))
+ranks <- tax_table(ps, errorIfNULL = FALSE)
+tax <- if (is.null(ranks)) data.frame(row.names = taxa) else as.data.frame(as(ranks, "matrix"))[taxa, , drop = FALSE]
 names(tax) <- tolower(names(tax))
-seqs <- if (!is.null(refseq(ps, errorIfNULL = FALSE))) as.character(refseq(ps))[rownames(tax)] else NA
-write.table(data.frame(id = rownames(tax), DNA_sequence = seqs, tax, check.names = FALSE),
-            "mdt-input/taxonomy.tsv", sep = "\t", quote = FALSE, row.names = FALSE, na = "")
+write_tsv(data.frame(id = ids, DNA_sequence = seqs, tax, check.names = FALSE), "mdt-input/taxonomy.tsv")
 
-sam <- as(sample_data(ps), "data.frame")
-write.table(data.frame(id = rownames(sam), sam, check.names = FALSE),
-            "mdt-input/samples.tsv", sep = "\t", quote = FALSE, row.names = FALSE, na = "")
+meta <- sample_data(ps, errorIfNULL = FALSE)
+sam <- if (is.null(meta)) data.frame(row.names = sample_names(ps)) else as(meta, "data.frame")
+names(sam)[names(sam) == "id"] <- "id_original"   # the MDT's sample key is "id"
+write_tsv(data.frame(id = rownames(sam), sam, check.names = FALSE), "mdt-input/samples.tsv")
 ```
 
-If the taxa names are the sequences themselves, use them as `DNA_sequence` and give short ids as in the DADA2 recipe.
+Then look at what came out, and tell the researcher:
+
+- **Rank columns** are named by whoever built the object. `kingdom` to `species` are Darwin Core terms. Others, such as `Domain`, `Rank1` ... `Rank7` or `Supergroup`, need a decision: which rank each holds, so it can be renamed in the script or mapped in Stage 4 (`Domain` with values like `Bacteria` usually maps to `kingdom`). Ask; don't assume.
+- **Prefixed names** such as `k__Bacteria` or `p__Firmicutes` (from QIIME or SILVA) keep their prefixes; strip them in the script, and turn the empty `g__` and the like into blanks.
+- **No sequences**: if there is no `refseq` slot and the taxa aren't named by sequence, `DNA_sequence` stays empty. Ask whether a FASTA file exists; the MDT needs the sequences.
+- **No sample data**: `samples.tsv` then holds only the ids, and dates, coordinates and the rest have to come from the researcher's sample sheet.
+- **An `id` column already in the sample data** is renamed `id_original`; map it in Stage 4 if it holds something useful, such as field sample names.
+- **Pruned or transformed objects**: a phyloseq object is often filtered, rarefied or turned into relative abundances during analysis. Counts that aren't whole numbers, or samples that all sum to the same total, are a sign of that; ask for the unfiltered object (see the rule on keeping the finest detail).
 
 ## A wide spreadsheet
 
