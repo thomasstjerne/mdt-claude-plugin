@@ -65,9 +65,7 @@ Write a script (Python or R, as the researcher prefers) that reads their files a
 
 ## Stage 3: Upload
 
-1. Ask which MDT installation to use, unless this folder's `mdt-dataset.json` already names one (`mdt.py config` shows it). `mdt.py installations` lists them: GBIF's own, open to anyone, and the national and regional ones registered with GBIF, each with its web address and description. Show the researcher the list, and point out any that fit where they or their data are from; a national installation may be where their node expects them to publish. Two more choices aren't in the list:
-   - an installation not registered with GBIF: ask for its API address
-   - a local MDT for testing, `http://localhost:9000` (web pages at `http://localhost:3000`)
+1. Ask which MDT installation to use, unless this folder's `mdt-dataset.json` already names one (`mdt.py config` shows it). `mdt.py installations` lists them: GBIF's own, open to anyone, and the national and regional ones registered with GBIF, each with its web address and description. Show the researcher the list, and point out any that fit where they or their data are from; a national installation may be where their node expects them to publish. If they name an installation that isn't in the list, ask for its API address.
 
    Then `mdt.py use <key or API address>`. Every later command in this folder goes to that MDT, so a dataset never ends up split across installations; a different installation needs a new folder.
 2. `mdt.py whoami`. If it isn't logged in to that installation, give them the `login` command it prints and wait. `login` asks for an API token: the researcher logs in to the MDT's web pages with their GBIF account, creates a token on their profile page (`<web>/user-profile/api-tokens`) and pastes it into `login`. Suggest a lifetime that covers the work, such as 7 days. Each installation has its own login, and a token ends when it expires, is revoked, or the MDT restarts; then they create a new one. If the profile page has no API tokens, the installation is an older version: `login --password` logs in with the GBIF password instead.

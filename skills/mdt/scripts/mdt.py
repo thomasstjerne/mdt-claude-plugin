@@ -250,7 +250,7 @@ def cmd_installations(args):
         lines += [f"{inst['title']}", f"  {inst['web_url']}  (API {inst['base_url']}" + (f", key {inst['key']})" if inst["key"] else ")")]
         if inst["description"]:
             lines.append(f"  {shorten(inst['description'])}")
-    lines += ["", f"Choose one with `use <API or key>`; for a local MDT when testing, `use http://localhost:{LOCAL_API_PORT}`."]
+    lines += ["", "Choose one with `use <API or key>`."]
     out(args, found, lines)
 
 
@@ -269,7 +269,7 @@ def cmd_use(args):
     except (MdtError, ValueError):
         answered = False
     if not answered:
-        print(f"Warning: no MDT answered at {url}. Check the address, or start the local MDT.", file=sys.stderr)
+        print(f"Warning: no MDT answered at {url}. Check the address.", file=sys.stderr)
     settings.update({"base_url": url, "web_url": (args.web_url or derived_web_url(url)).rstrip("/")})
     if title:
         settings["installation"] = title
@@ -727,7 +727,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="mdt.py", description="Drive the GBIF Metabarcoding Data Toolkit API.")
     p.add_argument("--dataset", help="dataset key; defaults to the one in ./mdt-dataset.json")
     p.add_argument("--json", action="store_true", help="print the raw response")
-    p.add_argument("--base-url", help="the MDT API to use for this command, such as http://localhost:9000")
+    p.add_argument("--base-url", help="the MDT API to use for this command, such as https://mdt.gbif.org/service")
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("config", help="show the installation in use, or set the default for folders without one")
@@ -736,8 +736,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_config)
     sub.add_parser("installations", help="list the MDT installations registered with GBIF").set_defaults(fn=cmd_installations)
     s = sub.add_parser("use", help="choose the MDT installation for this folder")
-    s.add_argument("url", help="the API base URL or the installation's key from `installations`, or http://localhost:9000 for a local MDT")
-    s.add_argument("--web-url", help="its web address, when it can't be derived (localhost:9000 gives localhost:3000)")
+    s.add_argument("url", help="the API base URL or the installation's key from `installations`")
+    s.add_argument("--web-url", help="its web address, when it can't be derived from the API address")
     s.set_defaults(fn=cmd_use)
     s = sub.add_parser("login", help="log in with an API token from the MDT profile page; run it yourself, not through the agent")
     s.add_argument("--password", action="store_true", help="log in with the GBIF username and password instead, for an MDT without API tokens")
