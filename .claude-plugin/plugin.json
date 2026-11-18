@@ -1,6 +1,6 @@
 {
   "name": "mdt",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Prepare metabarcoding/eDNA data for the GBIF Metabarcoding Data Toolkit (MDT) and take it through the MDT to a Darwin Core Archive on GBIF.",
   "author": {
     "name": "Thomas Stjernegaard Jeppesen"

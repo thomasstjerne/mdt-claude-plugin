@@ -587,14 +587,220 @@ def cmd_validator(args):
     out(args, res, [f"GBIF data validator report (ready when GBIF emails you): https://www.gbif.org/tools/data-validator/{vkey}" if vkey else "Submitted to the GBIF data validator; no key in the response."])
 
 
+_settings = {}
+
+
+def installation_settings():
+    if base_url() not in _settings:
+        _settings[base_url()] = request("GET", "/installation-settings", auth=False) or {}
+    return _settings[base_url()]
+
+
+def gbif_api():
+    """The GBIF API this installation publishes to: api.gbif.org, or api.gbif-test.org for a test MDT."""
+    host = urllib.parse.urlsplit(installation_settings().get("gbifRegistryBaseUrl") or "").hostname or ""
+    return "https://api.gbif-test.org/v1" if host.endswith("gbif-test.org") else "https://api.gbif.org/v1"
+
+
+def gbif_site():
+    return gbif_api().replace("://api.", "://www.")[: -len("/v1")]
+
+
+def my_organizations():
+    return request("GET", "/user/organizations") or []
+
+
+def publishes_to_gbif():
+    return bool(installation_settings().get("prodPublishingEnabled"))
+
+
+def not_publishing_line():
+    return (f"This installation ({installation_settings().get('title') or base_url()}) doesn't publish to GBIF.org itself: "
+            "its administrator publishes datasets for you. `request-access` drafts the email asking them to.")
+
+
+def cmd_organizations(args):
+    orgs = my_organizations()
+    lines = [f"Organizations this account may publish under at {base_url()}:"]
+    lines += [f"  {o.get('name')}  (key {o.get('key')})" for o in orgs] or ["  none yet: the installation's administrator has to associate the account with an organization (`request-access`)"]
+    if not publishes_to_gbif():
+        lines.append(not_publishing_line())
+    out(args, orgs, lines)
+
+
+ENDORSEMENT = {
+    "ENDORSED": "endorsed GBIF publisher",
+    "WAITING_FOR_ENDORSEMENT": "registered, waiting for endorsement by a GBIF node",
+    "ON_HOLD": "registered, endorsement on hold",
+    "REJECTED": "registered, endorsement rejected",
+}
+
+
+def cmd_publisher(args):
+    query = {"q": args.name, "limit": 10}
+    if args.country:
+        query["country"] = args.country.upper()
+    res = fetch_json(f"{gbif_api()}/organization?{urllib.parse.urlencode(query)}") or {}
+    results = [o for o in res.get("results") or [] if not o.get("deleted")]
+    try:
+        mine = {o.get("key") for o in my_organizations()} if read_token() else set()
+    except MdtError:
+        mine = set()  # not logged in, or the login has expired: the search works without it
+    lines = [f"{res.get('count', 0)} GBIF publishers match \"{args.name}\"" + (f" in {query['country']}" if args.country else "") + (", showing 10" if res.get("count", 0) > 10 else "") + ":"]
+    for o in results:
+        status = ENDORSEMENT.get(o.get("endorsementStatus"), "endorsed GBIF publisher" if o.get("endorsementApproved") else "registered, not endorsed")
+        place = ", ".join(filter(None, [o.get("city"), o.get("country")]))
+        lines.append(f"  {o.get('title')}" + (f" ({place})" if place else ""))
+        lines.append(f"    {status}; {o.get('numPublishedDatasets', 0)} published dataset{'' if o.get('numPublishedDatasets') == 1 else 's'}; {gbif_site()}/publisher/{o.get('key')}")
+        lines.append(f"    key {o.get('key')}" + ("  <- this account may already publish under it here" if o.get("key") in mine else ""))
+    if not results:
+        lines.append("  none. Try another spelling, the name in the local language, the parent institution, or no --country.")
+    out(args, results, lines)
+
+
+EMAIL_SUBJECT = "DNA Metabarcoding dataset publishing"  # as in the MDT's own publish page
+
+
+def signature(me):
+    return " ".join(filter(None, [me.get("firstName"), me.get("lastName")]))
+
+
+def fill(value, what):
+    return value or f"[Please fill in {what}]"
+
+
+# The texts follow the MDT's own publish page (edna-tool-ui src/Publish/EmailTemplate.js), so
+# installation administrators get the request they know.
+def existing_org_email(tool, dataset_url, test_line, me, org_key, org_title):
+    admin_link = (f"{tool}/admin/organizations?" + urllib.parse.urlencode({"organizationKey": org_key, "name": org_title, "userName": me.get("userName")}))
+    return f"""Dear administrator of {tool}.
+
+I would like to publish my DNA Metabarcoding dataset: {dataset_url} to GBIF.
+{test_line}
+I believe my institution/organization is already a GBIF data publisher: {org_title} - {gbif_site()}/publisher/{org_key}.
+
+My GBIF username is {me.get('userName')}.
+
+Could you please associate me with this institution/organization in {tool} ?
+
+Administrators can do it here: {admin_link}
+
+Kind regards
+
+{signature(me)}
+"""
+
+
+def new_org_email(tool, dataset_url, test_line, me, institution, address, contact):
+    return f"""Dear administrator of {tool}.
+
+I would like to publish my DNA Metabarcoding dataset: {dataset_url} to GBIF.
+{test_line}
+My GBIF username is {me.get('userName')}.
+
+It seems my institution/organization is not yet a GBIF publisher.
+My institution contact details are:
+
+Institution Name: {fill(institution, "your institution's name")}
+Institution Address: {fill(address, "your institution's address")}
+Contact Email: {fill(contact, "your institution's email")}
+
+Could you please help with the steps needed in order for me to be able to publish under this institution/organization?
+
+Kind regards
+
+{signature(me)}
+"""
+
+
+def non_publishing_email(tool, dataset_url, test_line, me, org_key, org_title, institution, address, contact):
+    if org_key:
+        option = f"""My institution is already registered as a GBIF publisher:
+GBIF publisher page: {gbif_site()}/publisher/{org_key}
+Institution Name: {org_title}"""
+    else:
+        option = f"""My institution is not registered as a GBIF publisher yet:
+Institution Name: {fill(institution, "your institution's name")}
+Institution Address: {fill(address, "your institution's address")}
+Contact Email: {fill(contact, "your institution's email")}"""
+    return f"""Dear administrator of {tool},
+
+I would like to publish this DNA Metabarcoding dataset to GBIF:
+{dataset_url}
+{test_line}
+My GBIF username is {me.get('userName')}.
+
+{option}
+
+Could you please guide me through the steps required for me to publish under this institution/organization?
+
+Kind regards,
+
+{signature(me)}
+"""
+
+
+def cmd_request_access(args):
+    if not args.organization and not args.new_organization:
+        raise MdtError("Give --organization <key> (from `publisher`) or --new-organization with --institution.")
+    key = dataset_key(args)
+    me = request("POST", "/auth/whoami")
+    settings = installation_settings()
+    to = settings.get("installationContactEmail")
+    if not to:
+        raise MdtError(f"{base_url()} doesn't give an administrator address in /installation-settings; ask the installation how to reach its administrator.")
+    tool = ui_url()
+    dataset_url = f"{tool}/dataset/{key}"
+    test_key = (current_report(key).get("publishing") or {}).get("gbifUatDatasetKey")
+    test_line = f"I have published a test-version in the GBIF test environment: https://www.gbif-test.org/dataset/{test_key}\n" if test_key else ""
+    org_title = None
+    if args.organization:
+        org = fetch_json(f"{gbif_api()}/organization/{args.organization}")
+        if not org:
+            raise MdtError(f"No GBIF publisher with key {args.organization}. `publisher <name>` finds the key.")
+        org_title = org.get("title")
+    if not publishes_to_gbif():
+        text = non_publishing_email(tool, dataset_url, test_line, me, args.organization, org_title, args.institution, args.address, args.contact_email)
+    elif args.organization:
+        text = existing_org_email(tool, dataset_url, test_line, me, args.organization, org_title)
+    else:
+        text = new_org_email(tool, dataset_url, test_line, me, args.institution, args.address, args.contact_email)
+    with open("publishing-request.txt", "w", encoding="utf-8") as f:
+        f.write(f"To: {to}\nSubject: {EMAIL_SUBJECT}\n\n{text}")
+    mailto = f"mailto:{to}?" + urllib.parse.urlencode({"subject": EMAIL_SUBJECT, "body": text}, quote_via=urllib.parse.quote)
+    lines = [f"Draft saved in publishing-request.txt. Nothing has been sent: the researcher sends it from their own email.",
+             f"To: {to}", f"Subject: {EMAIL_SUBJECT}", "", text]
+    if "[Please fill in" in text:
+        lines.append("Some details are still placeholders: fill them in before sending.")
+    lines.append(f"To open it in their mail program: {mailto}")
+    out(args, {"to": to, "subject": EMAIL_SUBJECT, "body": text, "mailto": mailto}, lines)
+
+
 def cmd_publish(args):
     key = dataset_key(args)
     if not args.i_confirm:
         raise MdtError("Publishing to GBIF.org is public and is the researcher's decision. Run again with --i-confirm only after they have said so in their own words.")
-    query = urllib.parse.urlencode({"organizationKey": args.organization})
-    res = request("POST", f"/dataset/{key}/register-in-gbif-prod?{query}") or {}
+    if not publishes_to_gbif():
+        raise MdtError(not_publishing_line())
+    orgs = my_organizations()
+    if not orgs:
+        raise MdtError("This account isn't associated with a publishing organization in this MDT yet. "
+                       "Find theirs with `publisher <name>`, and draft the request to the administrator with `request-access`.")
+    organization = args.organization or (orgs[0].get("key") if len(orgs) == 1 else None)
+    chosen = next((o for o in orgs if o.get("key") == organization), None)
+    if not chosen:
+        listed = "; ".join(f"{o.get('name')} ({o.get('key')})" for o in orgs)
+        raise MdtError(("Choose one with --organization. " if not args.organization else f"This account may not publish under {args.organization} here. ")
+                       + f"It may publish under: {listed}. For another organization, `request-access`.")
+    query = urllib.parse.urlencode({"organizationKey": organization})
+    try:
+        res = request("POST", f"/dataset/{key}/register-in-gbif-prod?{query}") or {}
+    except MdtError as e:
+        # the MDT answers 500 without a reason when, for instance, the archive hasn't been built
+        raise MdtError(f"{e}\nCheck that `dwc` has built the archive from the current data and that `status` shows the metadata ready; `log` may say more.")
     prod = (res.get("publishing") or {}).get("gbifProdDatasetKey")
-    out(args, res, [f"Published: https://www.gbif.org/dataset/{prod}" if prod else "Submitted for publication; no dataset key in the response."])
+    out(args, res, [f"Publishing under {chosen.get('name')}.",
+                    f"Published: https://www.gbif.org/dataset/{prod} (GBIF takes some minutes to an hour to process it)" if prod else "Submitted for publication; no dataset key in the response."])
 
 
 def fetch_json(url, headers=None):
@@ -804,8 +1010,20 @@ def main(argv=None):
     s.set_defaults(fn=cmd_dwc_dp)
     sub.add_parser("test", aliases=["uat"], help="register the archive on the GBIF test site, gbif-test.org").set_defaults(fn=cmd_test)
     sub.add_parser("validator", help="send the archive to the GBIF data validator").set_defaults(fn=cmd_validator)
+    sub.add_parser("organizations", help="the organizations this account may publish under in this MDT").set_defaults(fn=cmd_organizations)
+    s = sub.add_parser("publisher", help="look up an institution among the GBIF publishers")
+    s.add_argument("name", help="the institution's name, or part of it")
+    s.add_argument("--country", help="two-letter country code, such as DK")
+    s.set_defaults(fn=cmd_publisher)
+    s = sub.add_parser("request-access", help="draft the email asking the MDT's administrator for a publishing organization; never sends it")
+    s.add_argument("--organization", help="the GBIF key of their institution, when it is a GBIF publisher (from `publisher`)")
+    s.add_argument("--new-organization", action="store_true", help="their institution isn't a GBIF publisher yet")
+    s.add_argument("--institution", help="with --new-organization: the institution's name")
+    s.add_argument("--address", help="with --new-organization: the institution's address")
+    s.add_argument("--contact-email", help="with --new-organization: the institution's contact email")
+    s.set_defaults(fn=cmd_request_access)
     s = sub.add_parser("publish", help="publish on GBIF.org; only on the researcher's explicit word")
-    s.add_argument("--organization", required=True, help="the publishing organization's GBIF key")
+    s.add_argument("--organization", help="the publishing organization's GBIF key; may be left out when the account has only one")
     s.add_argument("--i-confirm", action="store_true", help="the researcher has asked for publication")
     s.set_defaults(fn=cmd_publish)
 

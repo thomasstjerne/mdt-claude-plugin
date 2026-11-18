@@ -22,7 +22,7 @@ Before any command, tell the researcher, in your own words:
   5. **Process**: the MDT converts the data, and they look at the result in the MDT's web pages.
   6. **Describe**: the dataset's title, people, licence and description.
   7. **Test**: the MDT builds the archive and tests it on GBIF's test site.
-  8. **Publish**: on GBIF.org, done only when they say so.
+  8. **Publish**: on GBIF.org, through their organization, done only when they say so.
 - that some questions only they can answer, and you'll ask them to confirm what you find in their documents
 - that their data leaves their machine only at Upload, and goes to the MDT installation they choose then
 
@@ -36,6 +36,7 @@ Then ask how familiar they are with Darwin Core and GBIF (new to it, used it bef
 - **Keep the finest detail.** One read count per sequence per sample. Don't sum, filter or rarefy unless the researcher asks for it.
 - **Credentials are typed by the researcher.** Never ask for a password or a token, or put one in a command, and if they paste one into the conversation, tell them to revoke it on their profile page and create a new one. When a command says the login is missing or expired, give them the `login` (or `gbif-login`) command it prints, to run in a terminal window of their own, and wait until they say it's done.
 - **Publishing on GBIF.org is theirs.** Only run `publish` after they have asked for it in their own words, for a dataset they've seen on the GBIF test site.
+- **Never send email or contact anyone on their behalf.** Draft it for them; they send it.
 - **Learn the MDT from its answers.** `validate`, `status` and `summary` say what the MDT found and what is missing. Relay them; don't guess around them.
 
 ## Stage 1: Inspect
@@ -95,9 +96,22 @@ Read `references/metadata.md`. If there is a DOI, ask whether to base the metada
 2. `mdt.py test` registers the dataset on GBIF's test site, gbif-test.org, and prints its link. Tell the researcher it can take some minutes for GBIF to index it, and ask them to look.
 3. `mdt.py validator` sends the archive to GBIF's data validator, as their GBIF account; GBIF emails them when the report is ready. If it says the MDT needs them to log in to GBIF again, give them the `gbif-login` command it prints and wait, then run `validator` again.
 
+Once they are happy with the test, tell them that publishing on GBIF.org goes through an organization (Stage 8), and that getting set up for it can take some days, so they may want to start on it now.
+
 ## Stage 8: Publish
 
-Only on the researcher's explicit word. Publishing needs their GBIF account to be allowed to publish for an organization in this MDT installation; if it isn't, tell them to contact the MDT administrators, or to publish from the web interface (`<web>/dataset/<key>/publish`). With their go-ahead and the organization's GBIF key: `mdt.py publish --organization <key> --i-confirm`.
+1. Explain how GBIF publishing works, in plain words, before anything else. Unlike GenBank or ENA, where a person uploads directly, GBIF publishes data on behalf of organizations (universities, institutes, agencies, societies) that a GBIF national node has endorsed. The researcher publishes as part of their organization, and in the MDT an administrator links their GBIF account to it. Their account stays their own, and the dataset will show the organization as its publisher.
+2. `mdt.py organizations` shows the organizations their account may already publish under in this MDT. If there is one, go to step 6.
+3. Ask for their affiliation: the institution, and the country. Then `mdt.py publisher "<name>" --country <XX>` searches the GBIF publishers. Show them the candidates with their status and links. The search matches descriptions too, so some hits are unrelated; a department may have its own entry or publish under its university; a publisher "waiting for endorsement" isn't ready yet. They choose, or none fits. Never choose for them. Try another spelling, the name in the local language, or the parent institution before concluding there is none.
+4. Draft the request to the installation's administrator, with what they confirmed:
+   - their institution is a publisher: `mdt.py request-access --organization <key>`
+   - it isn't: `mdt.py request-access --new-organization --institution "<name>" --address "<address>" --contact-email "<email>"`, with only the details they gave; the rest stay as placeholders for them to fill in. If they ask, <https://www.gbif.org/become-a-publisher> explains how an institution becomes a publisher, but the administrator will guide them.
+
+   It writes `publishing-request.txt` and prints the address, the text and a `mailto:` link. Show them all three; they send it from their own email.
+5. They wait for the administrator. `mdt.py organizations` shows when it's done.
+6. Publishing, only on their explicit word. First show them the GBIF data publisher agreement, <https://www.gbif.org/terms/data-publisher>, and the installation's own terms if `/installation-settings` has a `termsLink`, and tell them that a published dataset can only be removed from GBIF by asking the GBIF helpdesk. Once they have confirmed they've read it and want to publish: `mdt.py publish --organization <key> --i-confirm` (the key may be left out when they have only one organization). Give them the dataset's GBIF.org link it prints; GBIF takes some minutes to an hour to process it.
+
+Some installations don't publish to GBIF.org themselves (`organizations` and `publish` say so). Then step 6 doesn't apply: `request-access` drafts an email asking the administrator to publish the dataset, with the organization from step 3 filled in.
 
 ## Read only if
 

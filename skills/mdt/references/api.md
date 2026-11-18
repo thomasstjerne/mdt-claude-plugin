@@ -31,6 +31,9 @@ The data validator runs as the researcher's GBIF account, with the GBIF login th
 | `dwc-dp` | `POST /dataset/{key}/dwc-dp`; progress in `GET /dataset/{key}/dwc-dp` (`.dwcdp.steps`) | |
 | `test` | `POST /dataset/{key}/register-in-gbif-uat` | `publishing.gbifUatDatasetKey`; the dataset is then at `https://www.gbif-test.org/dataset/{key}`. The API's names still say UAT, GBIF's former name for the test site |
 | `validator` | `POST /dataset/{key}/data-validator` | `key` of the GBIF data validator report; `401 gbif-login-required` when the MDT needs `gbif-login` |
-| `publish` | `POST /dataset/{key}/register-in-gbif-prod?organizationKey={org}` | `publishing.gbifProdDatasetKey` |
+| `organizations` | `GET /user/organizations` | `[{key, name}]`: the organizations this account may publish under in this MDT, set by its administrator |
+| `publisher` | `GET {gbif}/v1/organization?q=&country=` | not the MDT. `{gbif}` is `api.gbif.org`, or `api.gbif-test.org` when the MDT's `gbifRegistryBaseUrl` is on gbif-test.org. `endorsementStatus`: `ENDORSED`, `WAITING_FOR_ENDORSEMENT`, ... |
+| `request-access` | `GET /installation-settings` (no login), `POST /auth/whoami`, `GET /dataset/{key}/process`, `GET {gbif}/v1/organization/{org}` | sends nothing: writes `publishing-request.txt` to `installationContactEmail`, worded as the MDT's own publish page |
+| `publish` | `GET /installation-settings`, `GET /user/organizations`, then `POST /dataset/{key}/register-in-gbif-prod?organizationKey={org}` | `publishing.gbifProdDatasetKey`. Refused before the POST when `prodPublishingEnabled` is false or the organization isn't the account's: the MDT itself answers those, and a missing archive, with a bare 500 |
 
 The web pages for a dataset are `<web>/dataset/{key}/` followed by `upload`, `term-mapping`, `process`, `review`, `metadata`, `export` or `publish`. A researcher can switch between the API and the web pages at any point; they work on the same dataset.

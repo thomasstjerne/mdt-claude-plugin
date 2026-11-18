@@ -36,6 +36,7 @@ On an MDT installation whose profile page has no API tokens yet, `mdt.py login -
 - Claude reads your files to reshape them. Unless you run a local model, what it reads goes to the model provider.
 - `mdt.py upload` and `add` send the files you name to the MDT installation you chose: `https://mdt.gbif.org` by default, one of the national or regional installations registered with GBIF (`mdt.py installations` lists them), or another installation. The choice is kept per folder, in `mdt-dataset.json`.
 - `test`, `validator` and `publish` ask the MDT to send the archive to GBIF.
+- `publisher` sends the institution name you look up to the GBIF API. `request-access` only writes an email draft; you send it yourself.
 
 ## Feedback
 
