@@ -522,15 +522,23 @@ def cmd_status(args):
 def cmd_summary(args):
     key = dataset_key(args)
     metrics = request("GET", f"/dataset/{key}/data/metrics", auth=False) or {}
-    geo = request("GET", f"/dataset/{key}/data/geojson", auth=False) or {}
-    invalid = (geo.get("metadata") or {}).get("errors") or []
-    features = geo.get("features") or []
+    try:
+        geo = request("GET", f"/dataset/{key}/data/geojson", auth=False) or {}
+    except MdtError as e:
+        if "404" not in str(e):
+            raise
+        geo = None  # the MDT has no map when no sample has coordinates
+    invalid = ((geo or {}).get("metadata") or {}).get("errors") or []
+    features = (geo or {}).get("features") or []
     scalar = {k: v for k, v in metrics.items() if isinstance(v, (int, float, str)) and not isinstance(v, bool)}
     lines = [f"{k}: {v}" for k, v in sorted(scalar.items())]
     for scope in ("geographicScope", "temporalScope"):
         if metrics.get(scope):
             lines.append(f"{scope}: {json.dumps(metrics[scope])}")
-    lines.append(f"Samples on the map: {len(features)}; without valid coordinates: {len(invalid)}")
+    if geo is None:
+        lines.append("No map: no sample has coordinates. Check that decimalLatitude and decimalLongitude are mapped.")
+    else:
+        lines.append(f"Samples on the map: {len(features)}; without valid coordinates: {len(invalid)}")
     if invalid:
         ids = [((i.get('properties') or {}).get('id')) if isinstance(i, dict) else i for i in invalid]
         lines.append("  " + ", ".join(map(str, ids[:30])) + (" ..." if len(ids) > 30 else ""))
